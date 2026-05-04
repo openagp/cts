@@ -1,0 +1,101 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.22", "1.23"]
+    steps:
+      - name: Checkout CTS
+        uses: actions/checkout@v4
+        with:
+          path: cts
+
+      - name: Checkout spec (sibling, for fixtures + drift check)
+        uses: actions/checkout@v4
+        with:
+          repository: openagp/spec
+          path: spec
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache-dependency-path: cts/go.sum
+
+      - name: Verify embedded schemas are in sync with spec/schemas/
+        working-directory: cts
+        run: |
+          set -euo pipefail
+          for f in ../spec/schemas/*.json; do
+            name=$(basename "$f")
+            if ! cmp -s "$f" "internal/schema/embed/$name"; then
+              echo "::error file=internal/schema/embed/$name::out of sync with ../spec/schemas/$name — run scripts/sync-spec.sh"
+              exit 1
+            fi
+          done
+          echo "schemas in sync"
+
+      - name: Verify embedded test vectors are in sync with spec/test-vectors/
+        working-directory: cts
+        run: |
+          set -euo pipefail
+          for f in ../spec/test-vectors/*.json; do
+            name=$(basename "$f")
+            if ! cmp -s "$f" "internal/vectors/embed/$name"; then
+              echo "::error file=internal/vectors/embed/$name::out of sync with ../spec/test-vectors/$name — run scripts/sync-spec.sh"
+              exit 1
+            fi
+          done
+          echo "test vectors in sync"
+
+      - name: go vet
+        working-directory: cts
+        run: go vet ./...
+
+      - name: go test
+        working-directory: cts
+        run: go test -count=1 ./...
+
+      - name: build CLI
+        working-directory: cts
+        run: |
+          CGO_ENABLED=0 go build -ldflags="-s -w" -o agp-cts ./cmd/agp-cts
+          ./agp-cts version
+          ./agp-cts vectors
+
+  release-build:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Cross-compile release matrix
+        run: |
+          mkdir -p dist
+          for goos in linux darwin windows; do
+            for goarch in amd64 arm64; do
+              out="dist/agp-cts-$goos-$goarch"
+              [ "$goos" = "windows" ] && out="$out.exe"
+              echo "building $out ..."
+              CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
+                go build -ldflags="-s -w" -o "$out" ./cmd/agp-cts
+            done
+          done
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agp-cts-binaries
+          path: dist/
