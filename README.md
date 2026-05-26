@@ -92,6 +92,19 @@ cts/
 └── scripts/sync-spec.sh        — sync from sibling ../spec
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/openagp/.github/blob/main/CONTRIBUTING.md) at the org level for DCO sign-off and PR conventions, and [SUPPORT.md](https://github.com/openagp/.github/blob/main/SUPPORT.md) for routing questions vs. bug reports.
+
+Before opening a PR:
+
+```bash
+make test       # go test ./...
+make vectors    # builds agp-cts + runs embedded test vectors end-to-end
+```
+
+If you're adding a new conformance check, also add the matching test vector to [`openagp/spec/test-vectors/`](https://github.com/openagp/spec/tree/main/test-vectors) and ensure the Python and TypeScript SDKs still pass it — that's the cross-language guarantee.
+
 ## License
 
 [Apache-2.0](LICENSE).
